@@ -47,8 +47,8 @@ function saveJSON(filePath, data) {
 // Load Initial Data from keys.json, wallet.json & config.json
 let walletBalance = loadJSON(WALLET_FILE, { balance: 1000 }).balance;
 let keys = loadJSON(KEYS_FILE, {});
-let config = loadJSON(CONFIG_FILE, { adminSecret: 'admin123', maintenance: false });
-let ADMIN_SECRET = process.env.ADMIN_SECRET || config.adminSecret || 'admin123';
+let config = loadJSON(CONFIG_FILE, { adminSecret: 'admin123456', maintenance: false });
+let ADMIN_SECRET = process.env.ADMIN_SECRET || 'admin123456';
 
 const PRICING = {
   0.2: 30,   // 5 Hours Trial = ₹30
