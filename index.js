@@ -1,0 +1,406 @@
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
+
+const app = express();
+app.use(express.json());
+app.use(cors());
+
+const PORT = process.env.PORT || 3000;
+
+// Persistent JSON Storage Path
+const KEYS_FILE = fs.existsSync(path.join(__dirname, 'src', 'keys.json'))
+  ? path.join(__dirname, 'src', 'keys.json')
+  : path.join(__dirname, 'keys.json');
+
+const WALLET_FILE = fs.existsSync(path.join(__dirname, 'src', 'wallet.json'))
+  ? path.join(__dirname, 'src', 'wallet.json')
+  : path.join(__dirname, 'wallet.json');
+
+const CONFIG_FILE = fs.existsSync(path.join(__dirname, 'src', 'config.json'))
+  ? path.join(__dirname, 'src', 'config.json')
+  : path.join(__dirname, 'config.json');
+
+// Helper to Load JSON File safely
+function loadJSON(filePath, defaultData) {
+  try {
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (e) {
+    console.error(`Error reading ${filePath}:`, e.message);
+  }
+  return defaultData;
+}
+
+// Helper to Save JSON File safely
+function saveJSON(filePath, data) {
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+  } catch (e) {
+    console.error(`Error writing ${filePath}:`, e.message);
+  }
+}
+
+// Load Initial Data from keys.json, wallet.json & config.json
+let walletBalance = loadJSON(WALLET_FILE, { balance: 1000 }).balance;
+let keys = loadJSON(KEYS_FILE, {});
+let config = loadJSON(CONFIG_FILE, { adminSecret: 'admin123', maintenance: false });
+let ADMIN_SECRET = process.env.ADMIN_SECRET || config.adminSecret || 'admin123';
+
+const PRICING = {
+  0.2: 30,   // 5 Hours Trial = ₹30
+  1: 70,     // 1 Day = ₹70
+  3: 160,    // 3 Days = ₹160
+  7: 300,    // 7 Days = ₹300
+  15: 550,   // 15 Days = ₹550
+  30: 999    // 30 Days Monthly = ₹999
+};
+
+function generateKey() {
+  const part = () => Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `CP-${part()}-${part()}-${part()}`;
+}
+
+function isExpired(key) {
+  const k = keys[key];
+  if (!k) return true;
+  if (k.expiresAt === -1) return false;
+  return Date.now() > k.expiresAt;
+}
+
+// Serve Web UI Panel
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'src', 'index.html'));
+});
+
+// Admin Auth Middleware
+function adminAuth(req, res, next) {
+  const secret = req.headers['x-admin-secret'];
+  if (secret !== ADMIN_SECRET) {
+    return res.status(403).json({ status: 'error', message: 'Unauthorized' });
+  }
+  next();
+}
+
+// GET /admin/stats — Get Reseller Live Stats & Maintenance Status
+app.get('/admin/stats', adminAuth, (req, res) => {
+  const allKeys = Object.values(keys);
+  const totalKeys = allKeys.length;
+  const activeKeys = allKeys.filter(k => k.active && (k.expiresAt === -1 || Date.now() <= k.expiresAt)).length;
+  const totalRevenue = allKeys.reduce((sum, k) => sum + (k.price || 0), 0);
+
+  res.json({
+    status: 'success',
+    totalKeys,
+    activeKeys,
+    totalRevenue,
+    walletBalance,
+    maintenance: !!config.maintenance
+  });
+});
+
+// POST /admin/maintenance/toggle — Toggle Server Maintenance Mode
+app.post('/admin/maintenance/toggle', adminAuth, (req, res) => {
+  const { maintenance } = req.body;
+  if (typeof maintenance === 'boolean') {
+    config.maintenance = maintenance;
+  } else {
+    config.maintenance = !config.maintenance;
+  }
+  saveJSON(CONFIG_FILE, config);
+
+  res.json({
+    status: 'success',
+    maintenance: config.maintenance,
+    message: config.maintenance ? 'Server Maintenance Mode ENABLED 🛠️' : 'Server Maintenance Mode DISABLED 🟢'
+  });
+});
+
+// POST /admin/change-password — Update Admin Security Password
+app.post('/admin/change-password', adminAuth, (req, res) => {
+  const { newPassword } = req.body;
+  if (!newPassword || newPassword.trim().length < 4) {
+    return res.status(400).json({ status: 'error', message: 'Password must be at least 4 characters long' });
+  }
+
+  ADMIN_SECRET = newPassword.trim();
+  config.adminSecret = ADMIN_SECRET;
+  saveJSON(CONFIG_FILE, config);
+
+  res.json({ status: 'success', message: 'Admin Password Updated Successfully' });
+});
+
+// GET /admin/wallet — Get Wallet Balance
+app.get('/admin/wallet', adminAuth, (req, res) => {
+  res.json({ status: 'success', balance: walletBalance });
+});
+
+// POST /admin/wallet/add — Add Funds (Admin)
+app.post('/admin/wallet/add', adminAuth, (req, res) => {
+  const { amount } = req.body;
+  if (!amount || amount <= 0) return res.status(400).json({ status: 'error', message: 'Invalid amount' });
+  
+  walletBalance += parseFloat(amount);
+  saveJSON(WALLET_FILE, { balance: walletBalance });
+  
+  res.json({ status: 'success', balance: walletBalance });
+});
+
+// POST /admin/generate — Buy & Generate Key
+app.post('/admin/generate', adminAuth, (req, res) => {
+  const { user, days, ogKey } = req.body;
+  if (!user || days === undefined) return res.status(400).json({ status: 'error', message: 'User and days required' });
+
+  // Calculate Price
+  const price = PRICING[days] || (days * 20);
+
+  // Check Wallet Balance
+  if (walletBalance < price) {
+    return res.status(400).json({ status: 'error', message: `Insufficient Wallet Balance! Required ₹${price}, Available ₹${walletBalance}` });
+  }
+
+  // Deduct Balance & Save Wallet
+  walletBalance -= price;
+  saveJSON(WALLET_FILE, { balance: walletBalance });
+
+  const key = generateKey();
+  const expiresAt = days === -1 ? -1 : Date.now() + (days || 1) * 24 * 60 * 60 * 1000;
+
+  keys[key] = {
+    user,
+    days,
+    price,
+    expiresAt,
+    active: true,
+    hwid: null,
+    ogKey: (ogKey && ogKey.trim()) ? ogKey.trim() : null,
+    createdAt: Date.now(),
+  };
+
+  saveJSON(KEYS_FILE, keys);
+
+  res.json({
+    status: 'success',
+    key,
+    user,
+    days,
+    ogKey: keys[key].ogKey,
+    priceDeducted: price,
+    remainingBalance: walletBalance,
+    expires: expiresAt === -1 ? 'Lifetime' : new Date(expiresAt).toISOString(),
+  });
+});
+
+// POST /admin/generate-bulk — Generate Multiple Keys at once
+app.post('/admin/generate-bulk', adminAuth, (req, res) => {
+  const { userPrefix, days, count } = req.body;
+  const numKeys = parseInt(count) || 1;
+  if (numKeys < 1 || numKeys > 50) return res.status(400).json({ status: 'error', message: 'Quantity must be between 1 and 50' });
+
+  const unitPrice = PRICING[days] || (days * 20);
+  const totalPrice = unitPrice * numKeys;
+
+  if (walletBalance < totalPrice) {
+    return res.status(400).json({ status: 'error', message: `Insufficient Wallet Balance! Required ₹${totalPrice}, Available ₹${walletBalance}` });
+  }
+
+  walletBalance -= totalPrice;
+  saveJSON(WALLET_FILE, { balance: walletBalance });
+
+  const generatedList = [];
+  const expiresAt = days === -1 ? -1 : Date.now() + (days || 1) * 24 * 60 * 60 * 1000;
+
+  for (let i = 0; i < numKeys; i++) {
+    const key = generateKey();
+    const username = numKeys === 1 ? (userPrefix || 'User') : `${userPrefix || 'Bulk'}_${i + 1}`;
+    keys[key] = {
+      user: username,
+      days,
+      price: unitPrice,
+      expiresAt,
+      active: true,
+      hwid: null,
+      createdAt: Date.now(),
+    };
+    generatedList.push({ key, user: username });
+  }
+
+  saveJSON(KEYS_FILE, keys);
+
+  res.json({
+    status: 'success',
+    totalGenerated: numKeys,
+    generatedList,
+    priceDeducted: totalPrice,
+    remainingBalance: walletBalance
+  });
+});
+
+// GET /admin/keys — List all generated keys
+app.get('/admin/keys', adminAuth, (req, res) => {
+  const result = Object.entries(keys).map(([k, v]) => ({
+    key: k,
+    user: v.user,
+    days: v.days,
+    price: v.price,
+    active: v.active,
+    hwid: v.hwid || 'Not bound',
+    ogKey: v.ogKey || 'Not set',
+    expires: v.expiresAt === -1 ? 'Lifetime' : new Date(v.expiresAt).toISOString(),
+    expired: isExpired(k),
+  }));
+  res.json({ status: 'success', total: result.length, keys: result });
+});
+
+// POST /admin/update-ogkey — Update Dynamic OG Master Key
+app.post('/admin/update-ogkey', adminAuth, (req, res) => {
+  const { key, ogKey } = req.body;
+  if (!keys[key]) return res.status(404).json({ status: 'error', message: 'Key not found' });
+  if (!ogKey || !ogKey.trim()) return res.status(400).json({ status: 'error', message: 'OG Master Key required' });
+
+  keys[key].ogKey = ogKey.trim();
+  saveJSON(KEYS_FILE, keys);
+
+  res.json({ status: 'success', message: `Updated OG Master Key for ${key}`, ogKey: keys[key].ogKey });
+});
+
+// POST /admin/revoke — Revoke Key
+app.post('/admin/revoke', adminAuth, (req, res) => {
+  const { key } = req.body;
+  if (!keys[key]) return res.status(404).json({ status: 'error', message: 'Key not found' });
+  
+  keys[key].active = false;
+  saveJSON(KEYS_FILE, keys);
+  
+  res.json({ status: 'success', message: 'Key revoked' });
+});
+
+// POST /admin/toggle-block — Block / Unblock Key
+app.post('/admin/toggle-block', adminAuth, (req, res) => {
+  const { key } = req.body;
+  if (!keys[key]) return res.status(404).json({ status: 'error', message: 'Key not found' });
+  
+  keys[key].active = !keys[key].active;
+  saveJSON(KEYS_FILE, keys);
+  
+  res.json({ status: 'success', active: keys[key].active, message: keys[key].active ? 'Key unblocked' : 'Key blocked' });
+});
+
+// POST /admin/add-days — Add Extra Days to Key Expiry
+app.post('/admin/add-days', adminAuth, (req, res) => {
+  const { key, days } = req.body;
+  if (!keys[key]) return res.status(404).json({ status: 'error', message: 'Key not found' });
+  const extraDays = parseFloat(days);
+  if (isNaN(extraDays) || extraDays <= 0) return res.status(400).json({ status: 'error', message: 'Invalid days count' });
+
+  const currentExpiry = keys[key].expiresAt;
+  const baseTime = (currentExpiry === -1 || currentExpiry < Date.now()) ? Date.now() : currentExpiry;
+  keys[key].expiresAt = baseTime + (extraDays * 24 * 60 * 60 * 1000);
+  keys[key].days = (keys[key].days || 0) + extraDays;
+  keys[key].active = true;
+
+  saveJSON(KEYS_FILE, keys);
+
+  res.json({
+    status: 'success',
+    newExpiry: new Date(keys[key].expiresAt).toISOString(),
+    message: `Added ${extraDays} days to key`
+  });
+});
+
+// POST /admin/reset-hwid — Reset Device HWID
+app.post('/admin/reset-hwid', adminAuth, (req, res) => {
+  const { key } = req.body;
+  if (!keys[key]) return res.status(404).json({ status: 'error', message: 'Key not found' });
+  
+  keys[key].hwid = null;
+  saveJSON(KEYS_FILE, keys);
+  
+  res.json({ status: 'success', message: 'HWID reset done' });
+});
+
+// POST /admin/delete-key — Permanently Delete Key from Database
+app.post('/admin/delete-key', adminAuth, (req, res) => {
+  const { key } = req.body;
+  if (!keys[key]) return res.status(404).json({ status: 'error', message: 'Key not found' });
+  
+  delete keys[key];
+  saveJSON(KEYS_FILE, keys);
+  
+  res.json({ status: 'success', message: 'Key deleted permanently' });
+});
+
+// POST /admin/import-keys — Import / Restore Keys Backup
+app.post('/admin/import-keys', adminAuth, (req, res) => {
+  const { importedKeys } = req.body;
+  if (!importedKeys || typeof importedKeys !== 'object') {
+    return res.status(400).json({ status: 'error', message: 'Invalid keys backup data' });
+  }
+
+  let count = 0;
+  Object.entries(importedKeys).forEach(([k, v]) => {
+    if (k && v && typeof v === 'object') {
+      keys[k] = {
+        user: v.user || 'Imported_User',
+        days: v.days || 1,
+        price: v.price || 0,
+        expiresAt: v.expiresAt || (v.expires && v.expires !== 'Lifetime' ? new Date(v.expires).getTime() : -1),
+        active: v.active !== undefined ? v.active : true,
+        hwid: (v.hwid === 'Not bound' || !v.hwid) ? null : v.hwid,
+        ogKey: v.ogKey || null,
+        createdAt: v.createdAt || Date.now()
+      };
+      count++;
+    }
+  });
+
+  saveJSON(KEYS_FILE, keys);
+
+  res.json({
+    status: 'success',
+    importedCount: count,
+    totalKeys: Object.keys(keys).length,
+    message: `Successfully imported ${count} key(s)!`
+  });
+});
+
+// POST /api/login — Public App Verification API (Proxy Mode)
+app.post('/api/login', (req, res) => {
+  if (config.maintenance) {
+    return res.json({ status: 'error', message: '⚠️ Server Under Maintenance! Please try again later.' });
+  }
+
+  const { key, hwid } = req.body;
+
+  if (!key || !hwid) {
+    return res.json({ status: 'error', message: 'Key and HWID required' });
+  }
+
+  const keyData = keys[key];
+  if (!keyData) return res.json({ status: 'error', message: 'Invalid Key' });
+  if (!keyData.active) return res.json({ status: 'error', message: 'Key Has Been Revoked' });
+  if (isExpired(key)) return res.json({ status: 'error', message: 'Key Expired' });
+
+  // Bind HWID on first login
+  if (!keyData.hwid) {
+    keyData.hwid = hwid;
+    saveJSON(KEYS_FILE, keys);
+  } else if (keyData.hwid !== hwid) {
+    return res.json({ status: 'error', message: 'Key locked to another device' });
+  }
+
+  res.json({
+    status: 'success',
+    message: 'Login Successful',
+    ogKey: keyData.ogKey || 'DEFAULT_MASTER_KEY',
+    user: keyData.user,
+    expires: keyData.expiresAt === -1 ? 'Lifetime' : new Date(keyData.expiresAt).toISOString(),
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`\n🔑 ANGRY MOD Persistent Key Server running on port ${PORT}`);
+});
