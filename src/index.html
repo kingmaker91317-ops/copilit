@@ -584,17 +584,19 @@
       errDiv.classList.add('d-none');
 
       try {
-        const res = await fetch('/admin/wallet', { headers: { 'x-admin-secret': secret } });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.status === 'success') {
-            sessionStorage.setItem('adminSecret', secret);
-            currentAdminSecret = secret;
-            showDashboard();
-            return;
-          }
+        const res = await fetch('/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret })
+        });
+        const data = await res.json();
+        if (res.ok && data.status === 'success') {
+          sessionStorage.setItem('adminSecret', secret);
+          currentAdminSecret = secret;
+          showDashboard();
+          return;
         }
-        errDiv.innerText = 'Invalid Admin Security Password!';
+        errDiv.innerText = data.message || 'Invalid Admin Security Password!';
         errDiv.classList.remove('d-none');
       } catch (err) {
         errDiv.innerText = 'Connection Error to Server';

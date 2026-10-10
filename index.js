@@ -81,6 +81,7 @@ function adminAuth(req, res, next) {
   const secret = (req.headers['x-admin-secret'] || '').toString().trim();
   if (
     secret === ADMIN_SECRET ||
+    secret === (config && config.adminSecret) ||
     secret === 'admin123456' ||
     secret === 'admin123' ||
     secret.toLowerCase() === 'admin123456' ||
@@ -90,6 +91,25 @@ function adminAuth(req, res, next) {
   }
   return res.status(403).json({ status: 'error', message: 'Unauthorized' });
 }
+
+// POST /admin/login — Login Verification
+app.post('/admin/login', (req, res) => {
+  const secret = (req.body.secret || '').toString().trim();
+  if (!secret) return res.status(400).json({ status: 'error', message: 'Password is required' });
+
+  if (
+    secret === ADMIN_SECRET ||
+    secret === (config && config.adminSecret) ||
+    secret === 'admin123456' ||
+    secret === 'admin123' ||
+    secret.toLowerCase() === 'admin123456' ||
+    secret.toLowerCase() === 'admin123'
+  ) {
+    return res.json({ status: 'success', message: 'Login successful' });
+  }
+
+  return res.status(403).json({ status: 'error', message: 'Invalid Admin Security Password!' });
+});
 
 // GET /admin/stats — Get Reseller Live Stats & Maintenance Status
 app.get('/admin/stats', adminAuth, (req, res) => {
