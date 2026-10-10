@@ -1,7 +1,7 @@
 services:
   - type: web
-    name: slnt
+    name: copilit
     env: node
     buildCommand: npm install
-    startCommand: node src/index.js
+    startCommand: node index.js
     plan: free

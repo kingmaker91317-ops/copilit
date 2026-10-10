@@ -73,7 +73,15 @@ function isExpired(key) {
 
 // Serve Web UI Panel
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'src', 'index.html'));
+  const possiblePaths = [
+    path.join(__dirname, 'src', 'index.html'),
+    path.join(__dirname, 'index.html'),
+    path.join(__dirname, '..', 'src', 'index.html')
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) return res.sendFile(p);
+  }
+  res.status(404).send('index.html not found');
 });
 
 // Admin Auth Middleware
