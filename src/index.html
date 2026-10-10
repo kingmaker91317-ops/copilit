@@ -176,7 +176,7 @@
         <i class="bi bi-shield-lock-fill fs-1"></i>
       </div>
       <h2 class="space-font fw-bold mb-1 brand-glow">ADMIN LOGIN</h2>
-      <p class="text-muted small mb-4">ANGRY MOD Reseller & Key Management System</p>
+      <p class="text-muted small mb-4">COPILOT MOD Reseller & Key Management System</p>
       
       <div id="loginError" class="alert alert-danger d-none py-2 small space-font mb-3"></div>
 
@@ -873,7 +873,7 @@
       if (!allFetchedKeys || allFetchedKeys.length === 0) return alert('No keys to export');
 
       let textContent = "===========================================\n";
-      textContent += "       ANGRY MOD LICENSE KEYS EXPORT       \n";
+      textContent += "      COPILOT MOD LICENSE KEYS EXPORT      \n";
       textContent += "===========================================\n\n";
 
       allFetchedKeys.forEach((k, index) => {
@@ -890,7 +890,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `ANGRY_KEYS_EXPORT_${Date.now()}.txt`;
+      a.download = `COPILOT_KEYS_EXPORT_${Date.now()}.txt`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
