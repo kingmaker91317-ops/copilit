@@ -584,11 +584,16 @@
       errDiv.classList.add('d-none');
 
       try {
-        const res = await fetch('/admin/login', {
+        let res = await fetch('/admin/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ secret })
         });
+
+        if (res.status === 404) {
+          res = await fetch('/admin/wallet', { headers: { 'x-admin-secret': secret } });
+        }
+
         const data = await res.json();
         if (res.ok && data.status === 'success') {
           sessionStorage.setItem('adminSecret', secret);
