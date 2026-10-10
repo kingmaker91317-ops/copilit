@@ -186,6 +186,9 @@
           <div class="input-group">
             <span class="input-group-text bg-dark border-secondary text-muted"><i class="bi bi-key-fill"></i></span>
             <input type="password" id="adminSecretInput" class="form-control bg-dark border-secondary text-white space-font py-2" placeholder="Enter Admin Password..." required>
+            <button class="btn btn-dark border-secondary text-muted px-3" type="button" onclick="toggleLoginPasswordVisibility()">
+              <i class="bi bi-eye-slash-fill" id="toggleLoginPassIcon"></i>
+            </button>
           </div>
           <div class="form-text text-muted extra-small mt-2" style="font-size: 0.8rem;">Default Password: <code class="text-warning">admin123456</code></div>
         </div>
@@ -559,6 +562,18 @@
         }
       } catch (e) {
         showLoginScreen();
+      }
+    }
+
+    function toggleLoginPasswordVisibility() {
+      const input = document.getElementById('adminSecretInput');
+      const icon = document.getElementById('toggleLoginPassIcon');
+      if (input.type === 'password') {
+        input.type = 'text';
+        icon.className = 'bi bi-eye-fill text-warning';
+      } else {
+        input.type = 'password';
+        icon.className = 'bi bi-eye-slash-fill text-muted';
       }
     }
 
